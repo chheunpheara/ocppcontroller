@@ -1,0 +1,39 @@
+version: "2.2"
+
+services:
+
+  rabbitmq:
+    image: rabbitmq:3.12.0-management
+    restart: always
+    container_name: rabbitmq
+    env_file:
+      - .env
+    ports:
+      - "${RABBITMQ_PORT}:5672"
+      - "${RABBITMQ_UI_PORT}:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_USER}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASS}"
+    healthcheck:
+      test: "exit 0"
+    networks:
+      - ocppservice
+  ocppcontroller:
+    container_name: ocppcontroller
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    ports:
+      - 3000:3000
+    networks:
+      - ocppservice
+    depends_on:
+      - rabbitmq
+    volumes:
+      - ./:/ocppcontroller
+
+networks:
+  ocppservice:
+    external: true
+    
+

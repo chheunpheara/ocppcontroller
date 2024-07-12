@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <style>
+        body {
+            background-color: blue;
+        }
+
+        .layout {
+            display: flex;
+            justify-content: center;
+            justify-items: center;
+            width: 100%;
+        }
+
+        .wrapper {
+            display: flex;
+            width: 60%;
+        }
+
+        .charger-section {
+            width: 40%;
+            border-right: 3px solid #fff;
+            margin-right: 5%;
+        }
+
+        .connector-section {
+            width: 60%
+        }
+
+        .result-section {
+            width: auto;
+            color: #fff;
+        }
+
+        .charger {
+            background-color: #000;
+            height: 200px;
+            color: #fff;
+            display: flexbox;
+            justify-content: center;
+            justify-items: center;
+            align-content: center;
+            text-align: center;
+            font-size: 3em;
+            border-radius: 10px;
+        }
+
+        .charger:hover {
+            background-color: #fff;
+            color: #000;
+            cursor: pointer;
+            box-shadow: 2px 5px 5px 0 lightblue;
+        }
+
+        .connector {
+            background-color: #fff;
+            height: 200px;
+            width: 40%;
+            color: #000;
+            display: flexbox;
+            justify-content: center;
+            justify-items: center;
+            align-content: center;
+            text-align: center;
+            font-size: 2em;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+
+        .connector:hover {
+            background-color: #eee;
+            color: #000;
+            cursor: pointer;
+        }
+
+        .status {
+            font-size: .5em;
+        }
+
+        .status-danger {
+            color: #d00;
+        }
+
+        .status-available {
+            color: green;
+        }
+
+        .status-charging {
+            color: blue;
+        }
+
+        .control {
+            display: flexbox;
+            margin-bottom: -10px;
+        }
+
+        .control button {
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="layout">
+        {% for charger in chargers %}
+        <div class="wrapper">
+            <div class="charger-section">
+                <div class="charger">{{ charger['name'] }}</div>
+            </div>
+            <div class="connector-section">
+                {% for key, connector in charger['connectors'].items() %}
+                <div class="connector">
+                    Connector {{ connector.get('id') }}
+                    {% if connector.get('status').lower() == 'available' %}
+                    <p class="status status-available" id="status-{{ charger['name'] }}-{{ connector.get('id') }}">{{
+                        connector.get('status') }}</p>
+                    {% elif connector.get('status').lower() == 'charging' %}
+                    <p class="status status-charging" id="status-{{ charger['name'] }}-{{ connector.get('id') }}">{{
+                        connector.get('status') }}</p>
+                    {% else %}
+                    <p class="status status-danger" id="status-{{ charger['name'] }}-{{ connector.get('id') }}">{{
+                        connector.get('status') }}</p>
+                    {% endif %}
+                    <p class="control">
+                        <button title="Start" data-charger="{{ charger['name'] }}"
+                            data-connector="{{ connector.get('id') }}"
+                            id="start-control-{{ charger['name'] }}-{{ connector.get('id') }}"
+                            class="btn-control">Start</button>
+                        <button title="Stop" data-charger="{{ charger['name'] }}"
+                            data-connector="{{ connector.get('id') }}"
+                            id="stop-control-{{ charger['name'] }}-{{ connector.get('id') }}"
+                            class="btn-control">Stop</button>
+                        <button title="Reserve" data-charger="{{ charger['name'] }}"
+                            data-connector="{{ connector.get('id') }}"
+                            id="reserve-control-{{ charger['name'] }}-{{ connector.get('id') }}"
+                            class="btn-control">Reserve</button>
+                        <button title="Clear Reservation" data-charger="{{ charger['name'] }}"
+                            data-connector="{{ connector.get('id') }}"
+                            id="clear-reserve-control-{{ charger['name'] }}-{{ connector.get('id') }}"
+                            class="btn-control">Clear Reservation</button>
+                    </p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+        <div class="result-section" id="result"></div>
+    </div>
+    <script>
+        const result = document.getElementById('result');
+        const btnControls = document.getElementsByClassName('btn-control');
+        let interval = null;
+        let socket = null;
+        for (let i = 0; i < btnControls.length; i++) {
+            const control = document.getElementById(btnControls[i].getAttribute('id'));
+            control.addEventListener('click', function () {
+                const connector = this.getAttribute('data-connector');
+                const chargebox = this.getAttribute('data-charger');
+                const startControllerId = 'start-control-' + chargebox + '-' + connector;
+                const stopControllerId = 'stop-control-' + chargebox + '-' + connector;
+                const reserveControllerId = 'reserve-control-' + chargebox + '-' + connector;
+                const clearReservation = 'clear-reserve-control-' + chargebox + '-' + connector;
+                if (btnControls[i].getAttribute('id') == startControllerId) {
+                    const trx = Math.floor(Math.random() * 999999999);
+                    document.getElementById(reserveControllerId).setAttribute('disabled', 'disabled');
+                    this.setAttribute('disabled', 'disabled');
+
+                    // Get status
+                    startRemoteTransaction(chargebox, connector, trx);
+                    // interval = setInterval(function () {
+                    //     getChargerStatus(chargebox, connector, 'status-' + chargebox + '-' + connector)
+                    // }, 3000);
+
+                    socket = new WebSocket('ws://localhost:3000/ws/channel/request-' + trx);
+                    console.log('Socket connected');
+                    socket.onmessage = (e) => {
+                        const j = JSON.parse(e.data);
+                        const requested = 10; // kwh
+                        const power = j.meter.sampled_value[0].value;
+                        const meterStart = j.meter_start;
+                        let result = ((power - meterStart)/1000).toFixed(2);
+                        if (result >= requested) {
+                            result = requested;
+                        }
+                        console.log(result)
+                        document.getElementById('status-' + chargebox + '-' + connector).innerHTML = ((result/requested) * 100).toFixed(0) + '%';
+                    }
+
+                    socket.onerror = (e) => console.log(e);
+                }
+
+                if (btnControls[i].getAttribute('id') == stopControllerId) {
+                    document.getElementById(startControllerId).removeAttribute('disabled');
+                    document.getElementById(reserveControllerId).removeAttribute('disabled');
+                    this.setAttribute('disabled', 'disabled');
+                    stopRemoteTransaction(chargebox, connector);
+                }
+
+                if (btnControls[i].getAttribute('id') == reserveControllerId) {
+                    document.getElementById(startControllerId).setAttribute('disabled', 'disabled');
+                    document.getElementById(stopControllerId).setAttribute('disabled', 'disabled');
+                    this.setAttribute('disabled', 'disabled');
+                }
+
+                if (btnControls[i].getAttribute('id') == clearReservation) {
+                    document.getElementById(startControllerId).removeAttribute('disabled');
+                    document.getElementById(stopControllerId).removeAttribute('disabled');
+                    document.getElementById(reserveControllerId).removeAttribute('disabled');
+                }
+            });
+        }
+
+
+        function getChargerStatus(chargeBox, connector, selector) {
+            fetch('/chargebox/' + chargeBox + '/' + connector)
+                .then(r => r.json())
+                .then(r => {
+                    const html = document.getElementById(selector);
+                    html.innerHTML = r.status;
+                })
+                .catch(e => console.log(e));
+        }
+
+        function startRemoteTransaction(chargeBox, connector, trx) {
+            fetch('/start-remote-transaction', {
+                body: JSON.stringify({ 'charge_box_name': chargeBox, 'connector_id': parseInt(connector), 'trx': trx }),
+                headers: {'Content-Type': 'application/json'},
+                method: 'POST'
+            })
+                .then(r => r.json())
+                .then(r => console.log(r))
+                .catch(e => console.log(e));
+        }
+
+        function stopRemoteTransaction(chargeBox, connector) {
+            fetch('/chargebox/' + chargeBox + '/' + connector)
+                .then(r => r.json())
+                .then(r => {
+                    console.log(r)
+                    fetch('/stop-remote-transaction-auto', {
+                        body: JSON.stringify({ 'charge_box': chargeBox, 'transaction_id': r.trx, 'connector_id': connector }),
+                        headers: {'Content-Type': 'application/json'},
+                        method: 'POST'
+                    })
+                        .then(r => r.json())
+                        .then(r => {
+                            if (r.status == 'Accepted') {
+                                document.getElementById('stop-control-' + chargeBox + '-' + connector).removeAttribute('disabled');
+                                setTimeout(function () {clearInterval(interval)}, 4000)
+                            }
+                        })
+                        .catch(e => console.log(e));
+                })
+                .catch(e => console.log(e));
+        }
+
+        function book(chargeBox, connector) {
+            fetch('/book', {
+                body: JSON.stringify({ 'charge_box': chargeBox, 'connector_id': parseInt(connector) }),
+                headers: {'Content-Type': 'application/json'},
+                method: 'POST'
+            })
+                .then(r => r.json())
+                .then(r => console.log(r))
+                .catch(e => console.log(e));
+        }
+    </script>
+</body>
+
+</html>
