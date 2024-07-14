@@ -5,7 +5,7 @@ if [[ $1 == "-b" ]]; then
 else
     docker compose up -d
 fi
-echo "2. Excuting APMQ service..."
+echo "2. Excuting AMQP service..."
 sleep 5
 docker exec ocppcontroller python charging_progress.py &
-echo "APMQ service executed"
+echo "AMQP service executed"
